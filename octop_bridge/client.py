@@ -89,6 +89,35 @@ class OctopClient:
         with urllib.request.urlopen(req, timeout=15, context=ssl_ctx) as resp:
             return json.loads(resp.read().decode("utf-8"))
 
+    def _api_post(self, path: str, payload: Optional[Dict[str, Any]] = None) -> Any:
+        """Perform an authenticated POST request."""
+        token = self.get_token()
+        url = f"{self.config.http_url}{path}"
+        data = json.dumps(payload or {}).encode("utf-8")
+        req = urllib.request.Request(
+            url,
+            data=data,
+            headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json", "Accept": "application/json"}
+        )
+        ssl_ctx = self._build_ssl_context()
+        with urllib.request.urlopen(req, timeout=15, context=ssl_ctx) as resp:
+            return json.loads(resp.read().decode("utf-8"))
+
+    def create_thread(self, agent_id: Optional[str] = None) -> str:
+        """Create a fresh conversation thread for the agent and return its thread_id."""
+        agent = self.resolve_agent(agent_id)
+        data = self._api_post(f"/api/agents/{agent.agent_id}/threads", {})
+        tid = data.get("thread_id")
+        if not tid:
+            raise RuntimeError(f"Failed to create new thread for agent {agent.name}: {data}")
+        return str(tid)
+
+    def list_threads(self, agent_id: Optional[str] = None) -> List[Dict[str, Any]]:
+        """List historical conversation threads for the agent."""
+        agent = self.resolve_agent(agent_id)
+        data = self._api_get(f"/api/agents/{agent.agent_id}/threads")
+        return data if isinstance(data, list) else data.get("threads", [])
+
     def list_agents(self) -> List[AgentSummary]:
         """Fetch list of all agents available on the Octop instance."""
         data = self._api_get("/api/agents")
@@ -134,6 +163,7 @@ class OctopClient:
         query: str,
         agent_id: Optional[str] = None,
         thread_id: Optional[str] = None,
+        new_thread: bool = False,
         conversation_mode: str = "craft",
         on_token: Optional[Callable[[str], None]] = None,
         on_tool_start: Optional[Callable[[str], None]] = None,
@@ -142,6 +172,8 @@ class OctopClient:
     ) -> TurnResult:
         """Stream a chat conversation turn with the target agent over WebSocket."""
         agent = self.resolve_agent(agent_id)
+        if new_thread and not thread_id:
+            thread_id = self.create_thread(agent.agent_id)
         token = self.get_token()
         timeout = timeout or self.config.timeout
 

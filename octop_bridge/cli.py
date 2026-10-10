@@ -44,6 +44,40 @@ def cmd_list_agents(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_list_threads(args: argparse.Namespace) -> int:
+    """List historical conversation threads for the agent."""
+    cfg = resolve_config(
+        url=args.url,
+        username=args.username,
+        password=args.password,
+        token=args.token,
+        agent_id=args.agent,
+        insecure=args.insecure,
+    )
+    client = OctopClient(cfg)
+    try:
+        agent = client.resolve_agent(args.agent)
+        threads = client.list_threads(agent.agent_id)
+    except Exception as e:
+        sys.stderr.write(f"Error fetching threads: {e}\n")
+        return 1
+
+    if args.json:
+        print(json.dumps(threads, ensure_ascii=False, indent=2))
+        return 0
+
+    print(f"\nThreads for Agent: {agent.name} ({agent.agent_id})")
+    print(f"Total: {len(threads)} thread(s):\n")
+    print(f"{'THREAD ID':<32} | {'PREVIEW'}")
+    print("-" * 75)
+    for t in threads:
+        tid = t.get("thread_id", "")
+        preview = (t.get("preview") or t.get("title") or "").replace("\n", " ")[:38]
+        print(f"{tid:<32} | {preview}")
+    print()
+    return 0
+
+
 def cmd_setup(args: argparse.Namespace) -> int:
     """Interactive wizard to configure Octop Bridge connection settings."""
     print("=== Octop Bridge Setup Wizard ===\n")
@@ -104,6 +138,7 @@ def cmd_chat(args: argparse.Namespace) -> int:
                 query=prompt,
                 agent_id=args.agent,
                 thread_id=args.thread_id,
+                new_thread=args.new_thread,
                 conversation_mode=args.mode,
                 on_token=on_token,
                 on_tool_start=on_tool_start,
@@ -145,6 +180,11 @@ def main(argv: Optional[list[str]] = None) -> int:
     sub_list = subparsers.add_parser("list-agents", aliases=["ls"], help="List available agents on Octop")
     sub_list.set_defaults(func=cmd_list_agents)
 
+    # Subcommand: list-threads
+    sub_threads = subparsers.add_parser("list-threads", aliases=["threads"], help="List conversation threads for an agent")
+    sub_threads.add_argument("--agent", "-a", default=None, help="Agent ID or Display Name")
+    sub_threads.set_defaults(func=cmd_list_threads)
+
     # Subcommand: setup
     sub_setup = subparsers.add_parser("setup", help="Configure server connection interactively")
     sub_setup.set_defaults(func=cmd_setup)
@@ -154,6 +194,7 @@ def main(argv: Optional[list[str]] = None) -> int:
     sub_chat.add_argument("query", help="Prompt or task to send")
     sub_chat.add_argument("--agent", "-a", default=None, help="Agent ID or Display Name (fuzzy matched)")
     sub_chat.add_argument("--thread-id", "-t", default=None, help="Conversation thread ID to continue")
+    sub_chat.add_argument("--new", "-n", dest="new_thread", action="store_true", help="Start a new isolated conversation thread")
     sub_chat.add_argument("--mode", "-m", choices=["craft", "ask", "plan"], default="craft", help="Turn mode")
     sub_chat.add_argument("--timeout", type=int, default=None, help="Turn timeout in seconds")
     sub_chat.add_argument("--no-stream", action="store_true", help="Disable live streaming output")
@@ -161,7 +202,7 @@ def main(argv: Optional[list[str]] = None) -> int:
 
     # Shorthand: direct query without explicit "chat" subcommand
     args_list = argv if argv is not None else sys.argv[1:]
-    if args_list and args_list[0] not in ("list-agents", "ls", "setup", "chat", "-h", "--help"):
+    if args_list and args_list[0] not in ("list-agents", "ls", "list-threads", "threads", "setup", "chat", "-h", "--help"):
         # Wrap into chat subcommand
         args_list = ["chat"] + args_list
 
