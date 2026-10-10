@@ -48,6 +48,11 @@ dev = [
 [project.scripts]
 octop-bridge = "octop_bridge.cli:main"
 
+[project.urls]
+Homepage = "https://github.com/DaydreamerHW/octop-bridge"
+Repository = "https://github.com/DaydreamerHW/octop-bridge"
+Issues = "https://github.com/DaydreamerHW/octop-bridge/issues"
+
 [tool.hatch.build.targets.wheel]
 packages = ["octop_bridge"]
 

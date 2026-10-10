@@ -52,7 +52,7 @@ It connects autonomous coding agents (like **Hermes Agent**, **Claude Code**, **
 
 ```bash
 # Clone the repository
-git clone https://github.com/your-username/octop-bridge.git
+git clone https://github.com/DaydreamerHW/octop-bridge.git
 cd octop-bridge
 
 # Install dependencies (or install in editable mode)
