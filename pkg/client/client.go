@@ -1,13 +1,18 @@
 package client
 
 import (
+	"archive/zip"
 	"bytes"
 	"context"
 	"crypto/tls"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -160,7 +165,7 @@ func (c *OctopClient) apiPost(path string, payload interface{}) ([]byte, error) 
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusNoContent {
 		body, _ := io.ReadAll(resp.Body)
 		return nil, fmt.Errorf("API POST %s failed (HTTP %d): %s", path, resp.StatusCode, string(body))
 	}
@@ -321,6 +326,226 @@ func (c *OctopClient) ListThreads(agentID string) ([]ThreadSummary, error) {
 		})
 	}
 	return summaries, nil
+}
+
+func (c *OctopClient) apiDelete(path string) error {
+	token, err := c.Login(false)
+	if err != nil {
+		return err
+	}
+
+	reqURL := fmt.Sprintf("%s%s", c.Cfg.HTTPURL(), path)
+	req, err := http.NewRequest("DELETE", reqURL, nil)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+
+	resp, err := c.HTTPClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 400 {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("API DELETE %s failed (HTTP %d): %s", path, resp.StatusCode, string(body))
+	}
+	return nil
+}
+
+func (c *OctopClient) ListSkills(agentID string) ([]SkillSummary, error) {
+	agent, err := c.ResolveAgent(agentID)
+	if err != nil {
+		return nil, err
+	}
+
+	path := fmt.Sprintf("/api/agents/%s/skills", agent.AgentID)
+	raw, err := c.apiGet(path)
+	if err != nil {
+		return nil, err
+	}
+
+	var rawList []map[string]interface{}
+	if err := json.Unmarshal(raw, &rawList); err != nil {
+		return nil, err
+	}
+
+	var res []SkillSummary
+	for _, item := range rawList {
+		name, _ := item["name"].(string)
+		desc, _ := item["description"].(string)
+		enabled, _ := item["enabled"].(bool)
+		kind, _ := item["kind"].(string)
+		zh, _ := item["display_name_zh"].(string)
+		en, _ := item["display_name_en"].(string)
+		res = append(res, SkillSummary{
+			Name:          name,
+			Description:   desc,
+			Enabled:       enabled,
+			Kind:          kind,
+			DisplayNameZH: zh,
+			DisplayNameEN: en,
+		})
+	}
+	return res, nil
+}
+
+func (c *OctopClient) EnableSkill(agentID, skillName string) error {
+	agent, err := c.ResolveAgent(agentID)
+	if err != nil {
+		return err
+	}
+	path := fmt.Sprintf("/api/agents/%s/skills/%s/enable", agent.AgentID, url.PathEscape(skillName))
+	_, err = c.apiPost(path, nil)
+	return err
+}
+
+func (c *OctopClient) DisableSkill(agentID, skillName string) error {
+	agent, err := c.ResolveAgent(agentID)
+	if err != nil {
+		return err
+	}
+	path := fmt.Sprintf("/api/agents/%s/skills/%s/disable", agent.AgentID, url.PathEscape(skillName))
+	_, err = c.apiPost(path, nil)
+	return err
+}
+
+func (c *OctopClient) DeleteSkill(agentID, skillName string) error {
+	agent, err := c.ResolveAgent(agentID)
+	if err != nil {
+		return err
+	}
+	path := fmt.Sprintf("/api/agents/%s/skills/%s", agent.AgentID, url.PathEscape(skillName))
+	return c.apiDelete(path)
+}
+
+func (c *OctopClient) InstallSkill(agentID, localPath string, overwrite bool) (*SkillSummary, error) {
+	agent, err := c.ResolveAgent(agentID)
+	if err != nil {
+		return nil, err
+	}
+
+	fi, err := os.Stat(localPath)
+	if err != nil {
+		return nil, fmt.Errorf("skill path not found: %w", err)
+	}
+
+	var skillName string
+	var skillContent string
+	var files []SkillFilePart
+
+	if fi.IsDir() {
+		// Read directory
+		skillName = filepath.Base(filepath.Clean(localPath))
+		skillMDPath := filepath.Join(localPath, "SKILL.md")
+		mdBytes, err := os.ReadFile(skillMDPath)
+		if err != nil {
+			return nil, fmt.Errorf("SKILL.md missing in directory: %w", err)
+		}
+		skillContent = string(mdBytes)
+		files = append(files, SkillFilePart{
+			Path:          "SKILL.md",
+			ContentBase64: base64.StdEncoding.EncodeToString(mdBytes),
+		})
+
+		err = filepath.Walk(localPath, func(path string, info os.FileInfo, err error) error {
+			if err != nil || info.IsDir() {
+				return err
+			}
+			rel, err := filepath.Rel(localPath, path)
+			if err != nil || rel == "SKILL.md" || strings.HasPrefix(info.Name(), ".") {
+				return nil
+			}
+			content, err := os.ReadFile(path)
+			if err != nil {
+				return err
+			}
+			files = append(files, SkillFilePart{
+				Path:          rel,
+				ContentBase64: base64.StdEncoding.EncodeToString(content),
+			})
+			return nil
+		})
+		if err != nil {
+			return nil, fmt.Errorf("error reading skill files: %w", err)
+		}
+	} else if strings.HasSuffix(strings.ToLower(localPath), ".zip") {
+		// Read ZIP file
+		r, err := zip.OpenReader(localPath)
+		if err != nil {
+			return nil, fmt.Errorf("failed to open zip file: %w", err)
+		}
+		defer r.Close()
+
+		baseZipName := strings.TrimSuffix(filepath.Base(localPath), filepath.Ext(localPath))
+		skillName = baseZipName
+
+		for _, f := range r.File {
+			if f.FileInfo().IsDir() {
+				continue
+			}
+			name := filepath.Clean(f.Name)
+			// Strip single parent directory if zipped as a folder
+			parts := strings.Split(name, string(filepath.Separator))
+			rel := name
+			if len(parts) > 1 {
+				skillName = parts[0]
+				rel = strings.Join(parts[1:], "/")
+			}
+
+			rc, err := f.Open()
+			if err != nil {
+				return nil, err
+			}
+			content, err := io.ReadAll(rc)
+			rc.Close()
+			if err != nil {
+				return nil, err
+			}
+
+			if rel == "SKILL.md" {
+				skillContent = string(content)
+			}
+			files = append(files, SkillFilePart{
+				Path:          rel,
+				ContentBase64: base64.StdEncoding.EncodeToString(content),
+			})
+		}
+
+		if skillContent == "" {
+			return nil, fmt.Errorf("zip does not contain a SKILL.md file")
+		}
+	} else {
+		return nil, fmt.Errorf("unsupported path: must be a skill directory or .zip file")
+	}
+
+	reqBody := CreateSkillRequest{
+		Name:      skillName,
+		Content:   skillContent,
+		Files:     files,
+		Overwrite: overwrite,
+	}
+
+	path := fmt.Sprintf("/api/agents/%s/skills", agent.AgentID)
+	raw, err := c.apiPost(path, reqBody)
+	if err != nil {
+		return nil, fmt.Errorf("failed to install skill: %w", err)
+	}
+
+	// Auto-enable installed skill
+	_ = c.EnableSkill(agent.AgentID, skillName)
+
+	var res map[string]interface{}
+	_ = json.Unmarshal(raw, &res)
+
+	desc, _ := res["description"].(string)
+	return &SkillSummary{
+		Name:        skillName,
+		Description: desc,
+		Enabled:     true,
+		Kind:        "workspace",
+	}, nil
 }
 
 func (c *OctopClient) ChatStream(

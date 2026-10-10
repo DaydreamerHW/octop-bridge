@@ -96,6 +96,14 @@ octop-bridge "Find today's top tech news" --json
 
 # 5. Continue a conversation thread
 octop-bridge "Can you recommend the morning flight among those?" --thread-id "thr_01M42Y9CWQ2MVW6S3A7QVS4FHQ"
+
+# 6. Manage and inspect Octop skills
+octop-bridge skill list                         # List all skills for active agent
+octop-bridge skill list --kind workspace       # List only workspace installed skills
+octop-bridge skill disable "gemini-image-gen"   # Disable a skill remotely
+octop-bridge skill enable "gemini-image-gen"    # Enable a skill remotely
+octop-bridge skill install ./path/to/my-skill   # Deploy local skill directory/zip to Octop in one command!
+octop-bridge skill remove "my-skill"            # Delete an installed skill from agent workspace
 ```
 
 ---

@@ -59,6 +59,13 @@ octop-bridge --agent "小通" "<query>"
 # List all available agents or recent conversation threads
 octop-bridge list-agents --json
 octop-bridge list-threads --json
+
+# Manage Octop skills remotely
+octop-bridge skill list --json
+octop-bridge skill enable <skill-name>
+octop-bridge skill disable <skill-name>
+octop-bridge skill install <local-skill-directory-or-zip>
+octop-bridge skill remove <skill-name>
 ```
 
 ## Quick Reference
