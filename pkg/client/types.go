@@ -10,6 +10,19 @@ type AgentSummary struct {
 	IconName     string `json:"icon_name,omitempty"`
 }
 
+type ChannelSummary struct {
+	ID   string `json:"id"`
+	Kind string `json:"kind"`
+	Name string `json:"name"`
+}
+
+type AgentRuntimeStatus struct {
+	State     string           `json:"state"`
+	LastError *string          `json:"last_error,omitempty"`
+	Channels  []ChannelSummary `json:"channels,omitempty"`
+	CronJobs  []interface{}    `json:"cron_jobs,omitempty"`
+}
+
 type ThreadSummary struct {
 	ThreadID  string `json:"thread_id"`
 	Title     string `json:"title,omitempty"`

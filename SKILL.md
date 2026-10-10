@@ -60,6 +60,15 @@ octop-bridge --agent "小通" "<query>"
 octop-bridge list-agents --json
 octop-bridge list-threads --json
 
+# Manage Octop agents & runtime lifecycle
+octop-bridge agent list --json
+octop-bridge agent get <agent-id-or-name>
+octop-bridge agent status <agent-id-or-name> --json
+octop-bridge agent reload <agent-id-or-name>
+octop-bridge agent start <agent-id-or-name>
+octop-bridge agent stop <agent-id-or-name>
+octop-bridge agent delete <agent-id-or-name> --yes
+
 # Manage Octop skills remotely
 octop-bridge skill list --json
 octop-bridge skill enable <skill-name>

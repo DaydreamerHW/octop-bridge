@@ -268,6 +268,62 @@ func (c *OctopClient) ResolveAgent(target string) (*AgentSummary, error) {
 	return &AgentSummary{AgentID: ident, Name: ident, Description: "Specified Agent"}, nil
 }
 
+func (c *OctopClient) GetAgentStatus(identifier string) (*AgentRuntimeStatus, error) {
+	agent, err := c.ResolveAgent(identifier)
+	if err != nil {
+		return nil, err
+	}
+	path := fmt.Sprintf("/api/agents/%s/status", agent.AgentID)
+	raw, err := c.apiGet(path)
+	if err != nil {
+		return nil, err
+	}
+	var status AgentRuntimeStatus
+	if err := json.Unmarshal(raw, &status); err != nil {
+		return nil, err
+	}
+	return &status, nil
+}
+
+func (c *OctopClient) StartAgent(identifier string) error {
+	agent, err := c.ResolveAgent(identifier)
+	if err != nil {
+		return err
+	}
+	path := fmt.Sprintf("/api/agents/%s/start", agent.AgentID)
+	_, err = c.apiPost(path, nil)
+	return err
+}
+
+func (c *OctopClient) StopAgent(identifier string) error {
+	agent, err := c.ResolveAgent(identifier)
+	if err != nil {
+		return err
+	}
+	path := fmt.Sprintf("/api/agents/%s/stop", agent.AgentID)
+	_, err = c.apiPost(path, nil)
+	return err
+}
+
+func (c *OctopClient) ReloadAgent(identifier string) error {
+	agent, err := c.ResolveAgent(identifier)
+	if err != nil {
+		return err
+	}
+	path := fmt.Sprintf("/api/agents/%s/reload", agent.AgentID)
+	_, err = c.apiPost(path, nil)
+	return err
+}
+
+func (c *OctopClient) DeleteAgent(identifier string) error {
+	agent, err := c.ResolveAgent(identifier)
+	if err != nil {
+		return err
+	}
+	path := fmt.Sprintf("/api/agents/%s", agent.AgentID)
+	return c.apiDelete(path)
+}
+
 func (c *OctopClient) CreateThread(agentID string) (string, error) {
 	agent, err := c.ResolveAgent(agentID)
 	if err != nil {

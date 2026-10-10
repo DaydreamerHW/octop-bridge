@@ -97,7 +97,16 @@ octop-bridge "Find today's top tech news" --json
 # 5. Continue a conversation thread
 octop-bridge "Can you recommend the morning flight among those?" --thread-id "thr_01M42Y9CWQ2MVW6S3A7QVS4FHQ"
 
-# 6. Manage and inspect Octop skills
+# 6. Manage agent runtime & lifecycle
+octop-bridge agent list                         # List all agents
+octop-bridge agent get "小通"                   # Get agent details
+octop-bridge agent status "小通"                # Inspect real-time status, channels & errors
+octop-bridge agent reload "小通"                # Hot-reload agent runtime, skills & connectors
+octop-bridge agent start "小通"                 # Start agent runtime
+octop-bridge agent stop "小通"                  # Stop agent runtime
+octop-bridge agent delete "test-agent" --yes    # Delete agent and workspace
+
+# 7. Manage and inspect Octop skills
 octop-bridge skill list                         # List all skills for active agent
 octop-bridge skill list --kind workspace       # List only workspace installed skills
 octop-bridge skill disable "gemini-image-gen"   # Disable a skill remotely
