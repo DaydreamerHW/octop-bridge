@@ -1,0 +1,497 @@
+package client
+
+import (
+	"bytes"
+	"context"
+	"crypto/tls"
+	"encoding/json"
+	"fmt"
+	"io"
+	"net/http"
+	"strings"
+	"time"
+
+	"github.com/DaydreamerHW/octop-bridge/pkg/config"
+	"github.com/gorilla/websocket"
+)
+
+type OctopClient struct {
+	Cfg        *config.Config
+	HTTPClient *http.Client
+}
+
+func NewClient(cfg *config.Config) *OctopClient {
+	transport := &http.Transport{
+		TLSClientConfig: &tls.Config{
+			InsecureSkipVerify: cfg.Insecure,
+		},
+	}
+	return &OctopClient{
+		Cfg: cfg,
+		HTTPClient: &http.Client{
+			Transport: transport,
+			Timeout:   time.Duration(cfg.Timeout) * time.Second,
+		},
+	}
+}
+
+func (c *OctopClient) Login(force bool) (string, error) {
+	if !force && c.Cfg.Token != "" {
+		return c.Cfg.Token, nil
+	}
+
+	if !force {
+		cached := config.LoadCachedToken(c.Cfg.HTTPURL())
+		if cached != "" {
+			c.Cfg.Token = cached
+			return cached, nil
+		}
+	}
+
+	if c.Cfg.Username == "" || c.Cfg.Password == "" {
+		return "", fmt.Errorf("username and password are required to login to Octop")
+	}
+
+	loginURL := fmt.Sprintf("%s/api/auth/login", c.Cfg.HTTPURL())
+	body, _ := json.Marshal(map[string]string{
+		"username": c.Cfg.Username,
+		"password": c.Cfg.Password,
+	})
+
+	req, err := http.NewRequest("POST", loginURL, bytes.NewBuffer(body))
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := c.HTTPClient.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("failed to connect to Octop at %s: %w", loginURL, err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		respBody, _ := io.ReadAll(resp.Body)
+		return "", fmt.Errorf("octop login failed (HTTP %d): %s", resp.StatusCode, string(respBody))
+	}
+
+	var res LoginResponse
+	if err := json.NewDecoder(resp.Body).Decode(&res); err != nil {
+		return "", fmt.Errorf("invalid login response: %w", err)
+	}
+	if res.AccessToken == "" {
+		return "", fmt.Errorf("login response did not contain access_token")
+	}
+
+	c.Cfg.Token = res.AccessToken
+	config.SaveCachedToken(c.Cfg.HTTPURL(), res.AccessToken, res.ExpiresIn)
+	return res.AccessToken, nil
+}
+
+func (c *OctopClient) apiGet(path string) ([]byte, error) {
+	token, err := c.Login(false)
+	if err != nil {
+		return nil, err
+	}
+
+	reqURL := fmt.Sprintf("%s%s", c.Cfg.HTTPURL(), path)
+	req, err := http.NewRequest("GET", reqURL, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Accept", "application/json")
+
+	resp, err := c.HTTPClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusUnauthorized {
+		// Retry once with fresh token
+		token, err = c.Login(true)
+		if err != nil {
+			return nil, err
+		}
+		req.Header.Set("Authorization", "Bearer "+token)
+		resp, err = c.HTTPClient.Do(req)
+		if err != nil {
+			return nil, err
+		}
+		defer resp.Body.Close()
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("API GET %s failed (HTTP %d): %s", path, resp.StatusCode, string(body))
+	}
+
+	return io.ReadAll(resp.Body)
+}
+
+func (c *OctopClient) apiPost(path string, payload interface{}) ([]byte, error) {
+	token, err := c.Login(false)
+	if err != nil {
+		return nil, err
+	}
+
+	var bodyReader io.Reader
+	if payload != nil {
+		data, err := json.Marshal(payload)
+		if err != nil {
+			return nil, err
+		}
+		bodyReader = bytes.NewBuffer(data)
+	}
+
+	reqURL := fmt.Sprintf("%s%s", c.Cfg.HTTPURL(), path)
+	req, err := http.NewRequest("POST", reqURL, bodyReader)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json")
+
+	resp, err := c.HTTPClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("API POST %s failed (HTTP %d): %s", path, resp.StatusCode, string(body))
+	}
+
+	return io.ReadAll(resp.Body)
+}
+
+func (c *OctopClient) ListAgents() ([]AgentSummary, error) {
+	raw, err := c.apiGet("/api/agents")
+	if err != nil {
+		return nil, err
+	}
+
+	var list []map[string]interface{}
+	if err := json.Unmarshal(raw, &list); err != nil {
+		// Check if it's wrapped in an object
+		var wrapped struct {
+			Agents []map[string]interface{} `json:"agents"`
+		}
+		if err2 := json.Unmarshal(raw, &wrapped); err2 == nil {
+			list = wrapped.Agents
+		} else {
+			return nil, err
+		}
+	}
+
+	var summaries []AgentSummary
+	for _, item := range list {
+		aid, _ := item["agent_id"].(string)
+		if aid == "" {
+			aid, _ = item["id"].(string)
+		}
+		name, _ := item["name"].(string)
+		desc, _ := item["description"].(string)
+		model, _ := item["default_model"].(string)
+		enabled, _ := item["enabled"].(bool)
+		shared, _ := item["is_shared"].(bool)
+		icon, _ := item["icon_name"].(string)
+
+		summaries = append(summaries, AgentSummary{
+			AgentID:      aid,
+			Name:         name,
+			Description:  desc,
+			DefaultModel: model,
+			Enabled:      enabled,
+			IsShared:     shared,
+			IconName:     icon,
+		})
+	}
+	return summaries, nil
+}
+
+func (c *OctopClient) ResolveAgent(target string) (*AgentSummary, error) {
+	agents, err := c.ListAgents()
+	if err != nil {
+		return nil, err
+	}
+	if len(agents) == 0 {
+		return nil, fmt.Errorf("no agents found on Octop instance")
+	}
+
+	ident := strings.TrimSpace(target)
+	if ident == "" {
+		ident = strings.TrimSpace(c.Cfg.DefaultAgentID)
+	}
+
+	if ident == "" {
+		if len(agents) == 1 {
+			return &agents[0], nil
+		}
+		for _, a := range agents {
+			if strings.Contains(a.Name, "通用") || strings.Contains(strings.ToLower(a.Name), "assistant") {
+				return &a, nil
+			}
+		}
+		return &agents[0], nil
+	}
+
+	// 1. Exact ID
+	for _, a := range agents {
+		if a.AgentID == ident {
+			return &a, nil
+		}
+	}
+
+	// 2. Exact Name
+	for _, a := range agents {
+		if strings.EqualFold(a.Name, ident) {
+			return &a, nil
+		}
+	}
+
+	// 3. Substring Name
+	for _, a := range agents {
+		if strings.Contains(strings.ToLower(a.Name), strings.ToLower(ident)) {
+			return &a, nil
+		}
+	}
+
+	return &AgentSummary{AgentID: ident, Name: ident, Description: "Specified Agent"}, nil
+}
+
+func (c *OctopClient) CreateThread(agentID string) (string, error) {
+	agent, err := c.ResolveAgent(agentID)
+	if err != nil {
+		return "", err
+	}
+
+	path := fmt.Sprintf("/api/agents/%s/threads", agent.AgentID)
+	raw, err := c.apiPost(path, map[string]interface{}{})
+	if err != nil {
+		return "", err
+	}
+
+	var res struct {
+		ThreadID string `json:"thread_id"`
+	}
+	if err := json.Unmarshal(raw, &res); err != nil {
+		return "", err
+	}
+	if res.ThreadID == "" {
+		return "", fmt.Errorf("no thread_id in response: %s", string(raw))
+	}
+	return res.ThreadID, nil
+}
+
+func (c *OctopClient) ListThreads(agentID string) ([]ThreadSummary, error) {
+	agent, err := c.ResolveAgent(agentID)
+	if err != nil {
+		return nil, err
+	}
+
+	path := fmt.Sprintf("/api/agents/%s/threads", agent.AgentID)
+	raw, err := c.apiGet(path)
+	if err != nil {
+		return nil, err
+	}
+
+	var list []map[string]interface{}
+	if err := json.Unmarshal(raw, &list); err != nil {
+		return nil, err
+	}
+
+	var summaries []ThreadSummary
+	for _, item := range list {
+		tid, _ := item["thread_id"].(string)
+		title, _ := item["title"].(string)
+		preview, _ := item["preview"].(string)
+		created, _ := item["created_at"].(float64)
+		updated, _ := item["updated_at"].(float64)
+
+		summaries = append(summaries, ThreadSummary{
+			ThreadID:  tid,
+			Title:     title,
+			Preview:   preview,
+			CreatedAt: int64(created),
+			UpdatedAt: int64(updated),
+		})
+	}
+	return summaries, nil
+}
+
+func (c *OctopClient) ChatStream(
+	ctx context.Context,
+	query string,
+	agentID string,
+	threadID string,
+	newThread bool,
+	mode string,
+	onToken func(string),
+	onToolStart func(string),
+	onToolEnd func(string),
+) (*TurnResult, error) {
+	agent, err := c.ResolveAgent(agentID)
+	if err != nil {
+		return nil, err
+	}
+
+	if newThread && threadID == "" {
+		tid, err := c.CreateThread(agent.AgentID)
+		if err == nil {
+			threadID = tid
+		}
+	}
+
+	token, err := c.Login(false)
+	if err != nil {
+		return nil, err
+	}
+
+	wsURL := fmt.Sprintf("%s/api/agents/%s/chat/ws?token=%s", c.Cfg.WSURL(), agent.AgentID, token)
+
+	dialer := websocket.Dialer{
+		TLSClientConfig: &tls.Config{
+			InsecureSkipVerify: c.Cfg.Insecure,
+		},
+		HandshakeTimeout: 15 * time.Second,
+	}
+
+	conn, _, err := dialer.DialContext(ctx, wsURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("websocket dial failed: %w", err)
+	}
+	defer conn.Close()
+
+	if mode == "" {
+		mode = "craft"
+	}
+
+	payload := InboundTurnPayload{
+		Type:             "user_turn",
+		Text:             query,
+		ThreadID:         threadID,
+		ConversationMode: mode,
+	}
+
+	if err := conn.WriteJSON(payload); err != nil {
+		return nil, fmt.Errorf("failed to send turn payload: %w", err)
+	}
+
+	var fullResponse strings.Builder
+	var toolsCalled []string
+	finalThreadID := threadID
+	startTime := time.Now()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		default:
+		}
+
+		_, message, err := conn.ReadMessage()
+		if err != nil {
+			if websocket.IsCloseError(err, websocket.CloseNormalClosure) {
+				break
+			}
+			return nil, fmt.Errorf("error reading websocket message: %w", err)
+		}
+
+		var frame map[string]interface{}
+		if err := json.Unmarshal(message, &frame); err != nil {
+			continue
+		}
+
+		fType, _ := frame["type"].(string)
+
+		if tid, ok := frame["thread_id"].(string); ok && tid != "" {
+			finalThreadID = tid
+		}
+
+		switch fType {
+		case "token":
+			if content, ok := frame["content"].(string); ok && content != "" {
+				fullResponse.WriteString(content)
+				if onToken != nil {
+					onToken(content)
+				}
+			}
+		case "chunk", "text_delta":
+			delta, _ := frame["delta"].(string)
+			if delta == "" {
+				delta, _ = frame["content"].(string)
+			}
+			if delta != "" {
+				fullResponse.WriteString(delta)
+				if onToken != nil {
+					onToken(delta)
+				}
+			}
+		case "tool_start", "tool_call":
+			toolName, _ := frame["tool"].(string)
+			if toolName == "" {
+				toolName, _ = frame["name"].(string)
+			}
+			if toolName != "" {
+				toolsCalled = append(toolsCalled, toolName)
+				if onToolStart != nil {
+					onToolStart(toolName)
+				}
+			}
+		case "tool_end", "tool_result":
+			toolName, _ := frame["tool"].(string)
+			if toolName == "" {
+				toolName, _ = frame["name"].(string)
+			}
+			if onToolEnd != nil {
+				onToolEnd(toolName)
+			}
+		case "state_update":
+			if data, ok := frame["data"].(map[string]interface{}); ok {
+				if msgs, ok := data["messages"].([]interface{}); ok {
+					for _, m := range msgs {
+						if mObj, ok := m.(map[string]interface{}); ok {
+							if tcs, ok := mObj["tool_calls"].([]interface{}); ok {
+								for _, tc := range tcs {
+									if tcObj, ok := tc.(map[string]interface{}); ok {
+										fn, _ := tcObj["function"].(map[string]interface{})
+										name, _ := fn["name"].(string)
+										if name == "" {
+											name, _ = tcObj["name"].(string)
+										}
+										if name != "" {
+											toolsCalled = append(toolsCalled, name)
+											if onToolStart != nil {
+												onToolStart(name)
+											}
+										}
+									}
+								}
+							}
+						}
+					}
+				}
+			}
+		case "done", "turn_done":
+			goto Completed
+		case "error":
+			errMsg, _ := frame["message"].(string)
+			return nil, fmt.Errorf("agent returned error: %s", errMsg)
+		}
+	}
+
+Completed:
+	return &TurnResult{
+		Status:          "success",
+		AgentID:         agent.AgentID,
+		AgentName:       agent.Name,
+		ThreadID:        finalThreadID,
+		Response:        strings.TrimSpace(fullResponse.String()),
+		ToolsCalled:     toolsCalled,
+		DurationSeconds: time.Since(startTime).Seconds(),
+	}, nil
+}

@@ -1,26 +1,17 @@
-# Byte-compiled / optimized / DLL files
-__pycache__/
-*.py[cod]
-*$py.class
+# Binaries
+bin/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
 
-# Distribution / packaging
-build/
-dist/
-*.egg-info/
-.eggs/
+# Test artifacts
+*.test
+*.out
+coverage.txt
 
-# Virtual environments
-.venv/
-venv/
-ENV/
-
-# Test & coverage
-.pytest_cache/
-.coverage
-htmlcov/
-
-# Local cache & credentials
-.cache/
+# Local secrets & credentials
 .env
 token_cache.json
 *.log

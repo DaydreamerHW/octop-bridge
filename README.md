@@ -1,7 +1,7 @@
 # Octop Bridge 🐙
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
-[![Python 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/)
+[![Go Version](https://img.shields.io/badge/go-1.21+-00ADD8.svg?logo=go)](https://go.dev)
 [![Agent Skills Compatible](https://img.shields.io/badge/AgentSkills-Compatible-success.svg)](https://agentskills.io)
 
 **Octop Bridge** is a universal client and AgentSkill bridge to chat, collaborate, and delegate tasks to self-hosted [Octop](https://github.com/TencentCloud/Octop) AI agents (such as "小通" / General Assistant) running on home NAS, Linux servers, or cloud instances.
@@ -55,8 +55,13 @@ It connects autonomous coding agents (like **Hermes Agent**, **Claude Code**, **
 git clone https://github.com/DaydreamerHW/octop-bridge.git
 cd octop-bridge
 
-# Install dependencies (or install in editable mode)
-pip install -e .
+# Build binary
+go build -o octop-bridge .
+
+# Move to your PATH (optional)
+sudo mv octop-bridge /usr/local/bin/
+# or install directly with go
+go install github.com/DaydreamerHW/octop-bridge@latest
 ```
 
 ### 2. Configuration
@@ -129,7 +134,7 @@ Hermes will automatically detect and invoke the skill, delegate the query to Oct
 
 Run the test suite:
 ```bash
-python3 -m unittest discover -s tests
+go test -v ./...
 ```
 
 ---
