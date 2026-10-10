@@ -9,14 +9,17 @@ import (
 )
 
 var (
-	flagURL      string
-	flagUsername string
-	flagPassword string
-	flagToken    string
-	flagAgent    string
-	flagInsecure bool
-	flagJSON     bool
-	flagTimeout  int
+	flagURL       string
+	flagUsername  string
+	flagPassword  string
+	flagToken     string
+	flagAgent     string
+	flagSession   string
+	flagThreadID  string
+	flagNewThread bool
+	flagInsecure  bool
+	flagJSON      bool
+	flagTimeout   int
 )
 
 var RootCmd = &cobra.Command{
@@ -30,7 +33,7 @@ and delegate tasks to self-hosted Octop AI agents (like "小通") running on NAS
 			return cmd.Help()
 		}
 		// If query given directly at root level, forward to chat command logic
-		return runChat(args, false, "", "craft", false)
+		return runChat(args, flagNewThread, flagThreadID, "craft", false)
 	},
 }
 
@@ -59,6 +62,9 @@ func init() {
 	RootCmd.PersistentFlags().StringVarP(&flagPassword, "password", "p", "", "Octop login password")
 	RootCmd.PersistentFlags().StringVar(&flagToken, "token", "", "Direct JWT Access Token (skips login)")
 	RootCmd.PersistentFlags().StringVarP(&flagAgent, "agent", "a", "", "Target Agent ID or fuzzy name")
+	RootCmd.PersistentFlags().StringVarP(&flagSession, "session", "s", "", "Caller session ID for 1:1 agent thread binding (defaults to HERMES_SESSION_ID)")
+	RootCmd.PersistentFlags().StringVarP(&flagThreadID, "thread-id", "t", "", "Explicit conversation thread ID")
+	RootCmd.PersistentFlags().BoolVarP(&flagNewThread, "new", "n", false, "Start a fresh isolated conversation thread")
 	RootCmd.PersistentFlags().BoolVarP(&flagInsecure, "insecure", "k", false, "Allow insecure TLS/SSL connections")
 	RootCmd.PersistentFlags().BoolVar(&flagJSON, "json", false, "Output result as JSON")
 	RootCmd.PersistentFlags().IntVar(&flagTimeout, "timeout", 0, "Execution timeout in seconds")

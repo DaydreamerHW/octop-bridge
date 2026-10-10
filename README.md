@@ -15,7 +15,7 @@ It connects autonomous coding agents (like **Hermes Agent**, **Claude Code**, **
 - **⚡ Full-Duplex WebSocket Streaming**: Connects directly to `/api/agents/{agent_id}/chat/ws` for real-time typewriter token output and tool execution status tracking.
 - **🔐 Automatic Authentication & Token Caching**: Seamlessly logs in with credentials, caches JWT bearer tokens with expiration awareness, and minimizes round-trip latency.
 - **🧭 Dynamic Agent Discovery & Fuzzy Routing**: No need to memorize cryptic internal IDs. Use `list-agents` to inspect available agents, or chat using natural names (e.g. `--agent "小通"`).
-- **🔄 Session & Thread Continuity**: Pass `--thread-id` to resume multi-turn conversations while retaining Octop's long-term memory.
+- **🔄 Session Scoping (1:1 Binding)**: Automatically detects caller session (`HERMES_SESSION_ID`) and creates a dedicated, clean thread on first contact, reusing it across subsequent turns. Prevents context bleeding across tasks. Pass `--new` to force a reset.
 - **🌐 Network & Proxy Resilient**: Supports HTTP, HTTPS, WS, WSS, custom ports, subpaths, and `--insecure` mode for self-signed certificates on home NAS.
 - **📦 Clean Architecture & Standards Compliant**: Ready to install as a standalone Python CLI or load directly into any AgentSkills-compliant framework via `SKILL.md`.
 

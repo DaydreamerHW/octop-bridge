@@ -610,6 +610,7 @@ func (c *OctopClient) ChatStream(
 	agentID string,
 	threadID string,
 	newThread bool,
+	callerSessionID string,
 	mode string,
 	onToken func(string),
 	onToolStart func(string),
@@ -620,10 +621,34 @@ func (c *OctopClient) ChatStream(
 		return nil, err
 	}
 
-	if newThread && threadID == "" {
+	sessionID := config.DetectCallerSessionID(callerSessionID)
+
+	if newThread {
+		// Explicit request to start a fresh clean session
 		tid, err := c.CreateThread(agent.AgentID)
-		if err == nil {
-			threadID = tid
+		if err != nil {
+			return nil, fmt.Errorf("failed to create new thread: %w", err)
+		}
+		threadID = tid
+		_ = config.SetBoundThreadID(sessionID, agent.AgentID, threadID)
+	} else if threadID != "" {
+		// Explicit thread requested by caller
+		_ = config.SetBoundThreadID(sessionID, agent.AgentID, threadID)
+	} else {
+		// 1:1 Session Scoping: Check if current caller session already has a dedicated thread
+		bound := config.GetBoundThreadID(sessionID, agent.AgentID)
+		if bound != "" {
+			threadID = bound
+		} else {
+			// First interaction in this session -> create a dedicated clean thread!
+			tid, err := c.CreateThread(agent.AgentID)
+			if err != nil {
+				// Fallback to active thread if creation fails
+				threadID = ""
+			} else {
+				threadID = tid
+				_ = config.SetBoundThreadID(sessionID, agent.AgentID, threadID)
+			}
 		}
 	}
 
@@ -766,6 +791,9 @@ func (c *OctopClient) ChatStream(
 	}
 
 Completed:
+	if finalThreadID != "" {
+		_ = config.SetBoundThreadID(sessionID, agent.AgentID, finalThreadID)
+	}
 	return &TurnResult{
 		Status:          "success",
 		AgentID:         agent.AgentID,

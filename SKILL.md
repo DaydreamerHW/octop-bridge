@@ -36,6 +36,13 @@ Trigger this skill whenever:
 - `octop-bridge` CLI installed in PATH (e.g. `/Users/xiaqian/.local/bin/octop-bridge`).
 - Configuration saved in `~/.config/octop-bridge/config.json`.
 
+## Session Scoping (1:1 Binding)
+
+- **Default Behavior**: When called from a Hermes (or other agent) session, `octop-bridge` automatically detects the caller's session ID (`HERMES_SESSION_ID`) and creates a **dedicated, clean conversation thread** on first contact with an expert.
+- **Continuity**: Follow-up calls within the same Hermes session automatically resume and continue that expert's dedicated thread, preserving context and memory while preventing cross-session context bleeding.
+- **Isolation**: Each Hermes session is completely isolated from other sessions and never pollutes the user's web dashboard thread.
+- **Force Reset**: Pass `--new` (`-n`) to force a fresh thread within the current session when explicitly requested by the user.
+
 ## How to Run
 
 Execute `octop-bridge` via the `terminal` tool:

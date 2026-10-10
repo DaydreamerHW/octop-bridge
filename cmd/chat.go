@@ -69,6 +69,7 @@ func runChat(args []string, newThread bool, threadID string, mode string, noStre
 		cfg.DefaultAgentID,
 		threadID,
 		newThread,
+		flagSession,
 		mode,
 		onToken,
 		onToolStart,
