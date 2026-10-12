@@ -113,6 +113,19 @@ octop-bridge skill disable "gemini-image-gen"   # Disable a skill remotely
 octop-bridge skill enable "gemini-image-gen"    # Enable a skill remotely
 octop-bridge skill install ./path/to/my-skill   # Deploy local skill directory/zip to Octop in one command!
 octop-bridge skill remove "my-skill"            # Delete an installed skill from agent workspace
+
+# 8. Manage Expert Templates & Instantiate Specialists
+octop-bridge list-experts                       # Browse all 17+ built-in specialist templates
+octop-bridge expert get "ops-engineer"          # Inspect template details & prompt
+octop-bridge expert create "ops-engineer" --name "运维诊断医生" # Instantiate agent from template
+
+# 9. Manage Expert Teams (多专家协作组)
+octop-bridge list-teams                         # List all expert teams
+octop-bridge team get "投研生活组"               # Inspect team roster and status
+octop-bridge team create --name "投研生活组" --description "多领域协同" --members "PQG34P,9TS55H"
+octop-bridge team update "投研生活组" --members "PQG34P,9TS55H,A9XZ9G" # Update roster
+octop-bridge team delete "投研生活组" --yes     # Permanently delete an expert team
+octop-bridge --agent "投研生活组" "请各位专家对本周科技市场与基础设施变动给出综合分析" # Chat with team host
 ```
 
 ---

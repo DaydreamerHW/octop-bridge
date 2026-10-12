@@ -173,6 +173,44 @@ func (c *OctopClient) apiPost(path string, payload interface{}) ([]byte, error) 
 	return io.ReadAll(resp.Body)
 }
 
+func (c *OctopClient) apiPatch(path string, payload interface{}) ([]byte, error) {
+	token, err := c.Login(false)
+	if err != nil {
+		return nil, err
+	}
+
+	var bodyReader io.Reader
+	if payload != nil {
+		data, err := json.Marshal(payload)
+		if err != nil {
+			return nil, err
+		}
+		bodyReader = bytes.NewBuffer(data)
+	}
+
+	reqURL := fmt.Sprintf("%s%s", c.Cfg.HTTPURL(), path)
+	req, err := http.NewRequest("PATCH", reqURL, bodyReader)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json")
+
+	resp, err := c.HTTPClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusNoContent {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("API PATCH %s failed (HTTP %d): %s", path, resp.StatusCode, string(body))
+	}
+
+	return io.ReadAll(resp.Body)
+}
+
 func (c *OctopClient) ListAgents() ([]AgentSummary, error) {
 	raw, err := c.apiGet("/api/agents")
 	if err != nil {
@@ -201,18 +239,30 @@ func (c *OctopClient) ListAgents() ([]AgentSummary, error) {
 		name, _ := item["name"].(string)
 		desc, _ := item["description"].(string)
 		model, _ := item["default_model"].(string)
-		enabled, _ := item["enabled"].(bool)
-		shared, _ := item["is_shared"].(bool)
+		state, _ := item["state"].(string)
+		kind, _ := item["kind"].(string)
+		color, _ := item["color"].(string)
 		icon, _ := item["icon_name"].(string)
+		iconURL, _ := item["icon_url"].(string)
+		shared, _ := item["is_shared"].(bool)
+
+		enabled, ok := item["enabled"].(bool)
+		if !ok {
+			enabled = state != "stopped" && state != "disabled"
+		}
 
 		summaries = append(summaries, AgentSummary{
 			AgentID:      aid,
 			Name:         name,
 			Description:  desc,
 			DefaultModel: model,
+			State:        state,
+			Kind:         kind,
 			Enabled:      enabled,
 			IsShared:     shared,
 			IconName:     icon,
+			IconURL:      iconURL,
+			Color:        color,
 		})
 	}
 	return summaries, nil
@@ -222,9 +272,6 @@ func (c *OctopClient) ResolveAgent(target string) (*AgentSummary, error) {
 	agents, err := c.ListAgents()
 	if err != nil {
 		return nil, err
-	}
-	if len(agents) == 0 {
-		return nil, fmt.Errorf("no agents found on Octop instance")
 	}
 
 	ident := strings.TrimSpace(target)
@@ -241,7 +288,9 @@ func (c *OctopClient) ResolveAgent(target string) (*AgentSummary, error) {
 				return &a, nil
 			}
 		}
-		return &agents[0], nil
+		if len(agents) > 0 {
+			return &agents[0], nil
+		}
 	}
 
 	// 1. Exact ID
@@ -262,6 +311,25 @@ func (c *OctopClient) ResolveAgent(target string) (*AgentSummary, error) {
 	for _, a := range agents {
 		if strings.Contains(strings.ToLower(a.Name), strings.ToLower(ident)) {
 			return &a, nil
+		}
+	}
+
+	// 4. Try matching teams if not found among regular agents
+	if teams, err := c.ListTeams(); err == nil {
+		for _, t := range teams {
+			if t.TeamID == ident || t.AgentID == ident || strings.EqualFold(t.Name, ident) || strings.Contains(strings.ToLower(t.Name), strings.ToLower(ident)) {
+				return &AgentSummary{
+					AgentID:      t.AgentID,
+					Name:         t.Name,
+					Description:  t.Description,
+					DefaultModel: t.DefaultModel,
+					State:        t.State,
+					Kind:         "team",
+					Enabled:      t.State != "stopped",
+					IconName:     t.IconName,
+					Color:        t.Color,
+				}, nil
+			}
 		}
 	}
 
@@ -803,4 +871,152 @@ Completed:
 		ToolsCalled:     toolsCalled,
 		DurationSeconds: time.Since(startTime).Seconds(),
 	}, nil
+}
+
+// --- Expert Templates API ---
+
+func (c *OctopClient) ListExperts() ([]ExpertTemplate, error) {
+	raw, err := c.apiGet("/api/experts")
+	if err != nil {
+		return nil, err
+	}
+	var list []ExpertTemplate
+	if err := json.Unmarshal(raw, &list); err != nil {
+		return nil, err
+	}
+	return list, nil
+}
+
+func (c *OctopClient) GetExpert(id string) (*ExpertTemplate, error) {
+	raw, err := c.apiGet(fmt.Sprintf("/api/experts/%s", id))
+	if err != nil {
+		return nil, err
+	}
+	var exp ExpertTemplate
+	if err := json.Unmarshal(raw, &exp); err != nil {
+		return nil, err
+	}
+	return &exp, nil
+}
+
+func (c *OctopClient) CreateAgentFromExpert(expertID string, req CreateAgentFromExpertRequest) (*AgentSummary, error) {
+	raw, err := c.apiPost(fmt.Sprintf("/api/agents/from-expert/%s", expertID), req)
+	if err != nil {
+		return nil, err
+	}
+	var res map[string]interface{}
+	if err := json.Unmarshal(raw, &res); err != nil {
+		return nil, err
+	}
+	aid, _ := res["agent_id"].(string)
+	name, _ := res["name"].(string)
+	desc, _ := res["description"].(string)
+	model, _ := res["default_model"].(string)
+	state, _ := res["state"].(string)
+	kind, _ := res["kind"].(string)
+	icon, _ := res["icon_name"].(string)
+	color, _ := res["color"].(string)
+
+	return &AgentSummary{
+		AgentID:      aid,
+		Name:         name,
+		Description:  desc,
+		DefaultModel: model,
+		State:        state,
+		Kind:         kind,
+		Enabled:      true,
+		IconName:     icon,
+		Color:        color,
+	}, nil
+}
+
+// --- Teams API ---
+
+func (c *OctopClient) ListTeams() ([]TeamPayload, error) {
+	raw, err := c.apiGet("/api/teams")
+	if err != nil {
+		return nil, err
+	}
+	var list []TeamPayload
+	if err := json.Unmarshal(raw, &list); err != nil {
+		return nil, err
+	}
+	return list, nil
+}
+
+func (c *OctopClient) GetTeam(teamID string) (*TeamPayload, error) {
+	raw, err := c.apiGet(fmt.Sprintf("/api/teams/%s", teamID))
+	if err != nil {
+		return nil, err
+	}
+	var team TeamPayload
+	if err := json.Unmarshal(raw, &team); err != nil {
+		return nil, err
+	}
+	return &team, nil
+}
+
+func (c *OctopClient) CreateTeam(req CreateTeamRequest) (*TeamPayload, error) {
+	raw, err := c.apiPost("/api/teams", req)
+	if err != nil {
+		return nil, err
+	}
+	var team TeamPayload
+	if err := json.Unmarshal(raw, &team); err != nil {
+		return nil, err
+	}
+	return &team, nil
+}
+
+func (c *OctopClient) UpdateTeam(teamID string, req UpdateTeamRequest) (*TeamPayload, error) {
+	raw, err := c.apiPatch(fmt.Sprintf("/api/teams/%s", teamID), req)
+	if err != nil {
+		return nil, err
+	}
+	var team TeamPayload
+	if err := json.Unmarshal(raw, &team); err != nil {
+		return nil, err
+	}
+	return &team, nil
+}
+
+func (c *OctopClient) DeleteTeam(teamID string) error {
+	return c.apiDelete(fmt.Sprintf("/api/teams/%s", teamID))
+}
+
+func (c *OctopClient) ResolveTeam(target string) (*TeamPayload, error) {
+	teams, err := c.ListTeams()
+	if err != nil {
+		return nil, err
+	}
+	ident := strings.TrimSpace(target)
+	if ident == "" {
+		if len(teams) > 0 {
+			return &teams[0], nil
+		}
+		return nil, fmt.Errorf("no expert teams found")
+	}
+
+	// 1. Exact ID
+	for _, t := range teams {
+		if t.TeamID == ident || t.AgentID == ident {
+			return &t, nil
+		}
+	}
+
+	// 2. Exact Name
+	for _, t := range teams {
+		if strings.EqualFold(t.Name, ident) {
+			return &t, nil
+		}
+	}
+
+	// 3. Substring Name
+	for _, t := range teams {
+		if strings.Contains(strings.ToLower(t.Name), strings.ToLower(ident)) {
+			return &t, nil
+		}
+	}
+
+	return nil, fmt.Errorf("expert team %q not found", target)
 }

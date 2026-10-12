@@ -5,9 +5,13 @@ type AgentSummary struct {
 	Name         string `json:"name"`
 	Description  string `json:"description"`
 	DefaultModel string `json:"default_model,omitempty"`
+	State        string `json:"state,omitempty"`
+	Kind         string `json:"kind,omitempty"`
 	Enabled      bool   `json:"enabled"`
 	IsShared     bool   `json:"is_shared,omitempty"`
 	IconName     string `json:"icon_name,omitempty"`
+	IconURL      string `json:"icon_url,omitempty"`
+	Color        string `json:"color,omitempty"`
 }
 
 type ChannelSummary struct {
@@ -50,6 +54,80 @@ type CreateSkillRequest struct {
 	Content   string          `json:"content,omitempty"`
 	Files     []SkillFilePart `json:"files,omitempty"`
 	Overwrite bool            `json:"overwrite"`
+}
+
+type LocalizedText struct {
+	ZH string `json:"zh,omitempty"`
+	EN string `json:"en,omitempty"`
+}
+
+type ExpertTemplate struct {
+	ID             string        `json:"id"`
+	Label          LocalizedText `json:"label"`
+	Description    LocalizedText `json:"description"`
+	WelcomeMessage LocalizedText `json:"welcome_message,omitempty"`
+	IconName       string        `json:"icon_name,omitempty"`
+	IconURL        string        `json:"icon_url,omitempty"`
+	Color          string        `json:"color,omitempty"`
+}
+
+type CreateAgentFromExpertRequest struct {
+	Name             string   `json:"name,omitempty"`
+	Description      string   `json:"description,omitempty"`
+	DefaultModel     string   `json:"default_model,omitempty"`
+	Color            string   `json:"color,omitempty"`
+	WelcomeMessage   string   `json:"welcome_message,omitempty"`
+	ConversationMode string   `json:"conversation_mode,omitempty"`
+	Providers        []string `json:"providers,omitempty"`
+}
+
+type TeamMember struct {
+	AgentID  string `json:"agent_id"`
+	Name     string `json:"name"`
+	Color    string `json:"color,omitempty"`
+	IconName string `json:"icon_name,omitempty"`
+	IconURL  string `json:"icon_url,omitempty"`
+	State    string `json:"state,omitempty"`
+	IsShared bool   `json:"is_shared,omitempty"`
+	UserID   *int   `json:"user_id,omitempty"`
+}
+
+type TeamPayload struct {
+	TeamID         string       `json:"team_id"`
+	AgentID        string       `json:"agent_id"`
+	Name           string       `json:"name"`
+	Description    string       `json:"description,omitempty"`
+	DefaultModel   string       `json:"default_model,omitempty"`
+	Color          string       `json:"color,omitempty"`
+	IconName       string       `json:"icon_name,omitempty"`
+	IconURL        string       `json:"icon_url,omitempty"`
+	WelcomeMessage string       `json:"welcome_message,omitempty"`
+	State          string       `json:"state,omitempty"`
+	Kind           string       `json:"kind,omitempty"`
+	MemberIDs      []string     `json:"member_ids"`
+	Members        []TeamMember `json:"members,omitempty"`
+}
+
+type CreateTeamRequest struct {
+	Name           string                 `json:"name"`
+	Description    string                 `json:"description,omitempty"`
+	DefaultModel   string                 `json:"default_model,omitempty"`
+	Color          string                 `json:"color,omitempty"`
+	IconName       string                 `json:"icon_name,omitempty"`
+	IconURL        string                 `json:"icon_url,omitempty"`
+	WelcomeMessage string                 `json:"welcome_message,omitempty"`
+	MemberIDs      []string               `json:"member_ids,omitempty"`
+	Config         map[string]interface{} `json:"config,omitempty"`
+}
+
+type UpdateTeamRequest struct {
+	Name           *string   `json:"name,omitempty"`
+	Description    *string   `json:"description,omitempty"`
+	DefaultModel   *string   `json:"default_model,omitempty"`
+	Color          *string   `json:"color,omitempty"`
+	IconName       *string   `json:"icon_name,omitempty"`
+	WelcomeMessage *string   `json:"welcome_message,omitempty"`
+	MemberIDs      *[]string `json:"member_ids,omitempty"`
 }
 
 type TurnResult struct {
